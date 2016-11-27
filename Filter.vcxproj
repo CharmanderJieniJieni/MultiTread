@@ -116,6 +116,8 @@
     <ClCompile Include="Filter.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <Media Include="BB1_L.mp4" />
+    <Media Include="BB1_R.mp4" />
     <Media Include="GreenL.mp4" />
     <Media Include="GreenR.mp4" />
   </ItemGroup>
