@@ -1,6 +1,5 @@
 ﻿  Filter.cpp
 d:\university of toronto\parallel programming\project\image filter_multithread\filter.cpp(24): warning C4067: unexpected tokens following preprocessor directive - expected a newline
-d:\university of toronto\parallel programming\project\image filter_multithread\filter.cpp(215): warning C4172: returning address of local variable or temporary: coord
-d:\university of toronto\parallel programming\project\image filter_multithread\filter.cpp(316): warning C4715: 'imageProc': not all control paths return a value
+d:\university of toronto\parallel programming\project\image filter_multithread\filter.cpp(222): warning C4172: returning address of local variable or temporary: coord
   Filter.vcxproj -> D:\University of Toronto\Parallel Programming\Project\Image Filter_MultiThread\x64\Debug\Filter.exe
   Filter.vcxproj -> D:\University of Toronto\Parallel Programming\Project\Image Filter_MultiThread\x64\Debug\Filter.pdb (Partial PDB)

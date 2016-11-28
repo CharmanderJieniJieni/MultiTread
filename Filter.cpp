@@ -23,6 +23,8 @@
 #include <Windows.h>
 #include <strsafe.h> <STRSAFE.H>
 #include <fstream>
+#include <mutex>
+#include <thread>
 
 using std::string;
 using std::vector;
@@ -32,10 +34,10 @@ using namespace cv;
 const int FRAME_WIDTH = 320;
 const int FRAME_HEIGHT = 240;
 //max number of objects to be detected in frame
-const int MAX_NUM_OBJECTS=50;
+const int MAX_NUM_OBJECTS = 50;
 //minimum and maximum object area
-const int MIN_OBJECT_AREA = 20*20;
-const int MAX_OBJECT_AREA = FRAME_HEIGHT*FRAME_WIDTH/1.5;
+const int MIN_OBJECT_AREA = 20 * 20;
+const int MAX_OBJECT_AREA = FRAME_HEIGHT*FRAME_WIDTH / 1.5;
 //names that will appear at the top of each window
 const string windowNameCam1 = "Original Image Camera1";
 const string windowNameCam2 = "Original Image Camera2";
@@ -69,7 +71,7 @@ double cam2_y[9999];
 int delayBuf[9999];
 int stereoCounter = 0;//used for stereo positioning thread
 
-string intToString(int number){
+string intToString(int number) {
 	std::stringstream ss;
 	ss << number;
 	return ss.str();
@@ -83,59 +85,61 @@ void writeLog(string path, string log) {
 	myfile.close();
 }
 
-void drawObject(int x, int y,Mat &frame){
+void drawObject(int x, int y, Mat &frame) {
 
 	//use some of the openCV drawing functions to draw crosshairs
 	//on your tracked image!
 
-    //UPDATE:JUNE 18TH, 2013
-    //added 'if' and 'else' statements to prevent
-    //memory errors from writing off the screen (ie. (-25,-25) is not within the window!)
+	//UPDATE:JUNE 18TH, 2013
+	//added 'if' and 'else' statements to prevent
+	//memory errors from writing off the screen (ie. (-25,-25) is not within the window!)
 
-	circle(frame,Point(x,y),20,Scalar(0,255,0),2);
-    if(y-25>0)
-    line(frame,Point(x,y),Point(x,y-25),Scalar(0,255,0),2);
-    else line(frame,Point(x,y),Point(x,0),Scalar(0,255,0),2);
-    if(y+25<FRAME_HEIGHT)
-    line(frame,Point(x,y),Point(x,y+25),Scalar(0,255,0),2);
-    else line(frame,Point(x,y),Point(x,FRAME_HEIGHT),Scalar(0,255,0),2);
-    if(x-25>0)
-    line(frame,Point(x,y),Point(x-25,y),Scalar(0,255,0),2);
-    else line(frame,Point(x,y),Point(0,y),Scalar(0,255,0),2);
-    if(x+25<FRAME_WIDTH)
-    line(frame,Point(x,y),Point(x+25,y),Scalar(0,255,0),2);
-    else line(frame,Point(x,y),Point(FRAME_WIDTH,y),Scalar(0,255,0),2);
+	circle(frame, Point(x, y), 20, Scalar(0, 255, 0), 2);
+	if (y - 25>0)
+		line(frame, Point(x, y), Point(x, y - 25), Scalar(0, 255, 0), 2);
+	else line(frame, Point(x, y), Point(x, 0), Scalar(0, 255, 0), 2);
+	if (y + 25<FRAME_HEIGHT)
+		line(frame, Point(x, y), Point(x, y + 25), Scalar(0, 255, 0), 2);
+	else line(frame, Point(x, y), Point(x, FRAME_HEIGHT), Scalar(0, 255, 0), 2);
+	if (x - 25>0)
+		line(frame, Point(x, y), Point(x - 25, y), Scalar(0, 255, 0), 2);
+	else line(frame, Point(x, y), Point(0, y), Scalar(0, 255, 0), 2);
+	if (x + 25<FRAME_WIDTH)
+		line(frame, Point(x, y), Point(x + 25, y), Scalar(0, 255, 0), 2);
+	else line(frame, Point(x, y), Point(FRAME_WIDTH, y), Scalar(0, 255, 0), 2);
 
-	putText(frame,intToString(x)+","+intToString(y),Point(x,y+30),1,1,Scalar(0,255,0),2);
+	putText(frame, intToString(x) + "," + intToString(y), Point(x, y + 30), 1, 1, Scalar(0, 255, 0), 2);
 
 }
 
-void morphOps(Mat &thresh){
+void morphErode(Mat &thresh) {
 
 	//create structuring element that will be used to "dilate" and "erode" image.
 	//the element chosen here is a 3px by 3px rectangle
-
-	Mat erodeElement = getStructuringElement( MORPH_RECT,Size(10,10));
-    //dilate with larger element so make sure object is nicely visible
-	Mat dilateElement = getStructuringElement( MORPH_RECT,Size(16,16));
-
-	erode(thresh,thresh,erodeElement);
-	dilate(thresh,thresh,dilateElement);
+	Mat erodeElement = getStructuringElement(MORPH_RECT, Size(10, 10));
+	//dilate with larger element so make sure object is nicely visible	
+	erode(thresh, thresh, erodeElement);
 
 }
+
+void morphDilate(Mat &thresh) {
+	Mat dilateElement = getStructuringElement(MORPH_RECT, Size(16, 16));
+	dilate(thresh, thresh, dilateElement);
+}
+
 void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed, int delay, int cameraID, int capture_iteration) {
 	try
 	{
-	Mat temp;
+		Mat temp;
 		threshold.copyTo(temp);
 		//these two vectors needed for output of findContours
 		vector< vector<Point> > contours;
 		vector<Vec4i> hierarchy;
 		//find contours of filtered image using openCV findContours function
-		findContours(temp,contours,hierarchy,CV_RETR_CCOMP,CV_CHAIN_APPROX_SIMPLE );
+		findContours(temp, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
 		//use moments method to find our filtered object
 		double refArea = 0;
-	
+
 		//delay desplay variable
 		String delayText = "";
 
@@ -143,7 +147,7 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed, int del
 		if (hierarchy.size() > 0) {
 			int numObjects = hierarchy.size();
 			//if number of objects greater than MAX_NUM_OBJECTS we have a noisy filter
-			if(numObjects<MAX_NUM_OBJECTS){
+			if (numObjects<MAX_NUM_OBJECTS) {
 				for (int index = 0; index >= 0; index = hierarchy[index][0]) {
 
 					Moments moment = moments((cv::Mat)contours[index]);
@@ -153,9 +157,9 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed, int del
 					//if the area is the same as the 3/2 of the image size, probably just a bad filter
 					//we only want the object with the largest area so we safe a reference area each
 					//iteration and compare it to the area in the next iteration.
-					if(area>MIN_OBJECT_AREA && area<MAX_OBJECT_AREA && area>refArea){
-						x = moment.m10/area;
-						y = moment.m01/area;
+					if (area>MIN_OBJECT_AREA && area<MAX_OBJECT_AREA && area>refArea) {
+						x = moment.m10 / area;
+						y = moment.m01 / area;
 						objectFound = true;
 						refArea = area;
 
@@ -173,23 +177,26 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed, int del
 						default:
 							break;
 						}
-					}else objectFound = false;
+					}
+					else objectFound = false;
 				}
 				//let user know you found an object
-				if(objectFound ==true){
+				if (objectFound == true) {
 					delayText = "delay =" + intToString(delay) + "ms";
-					putText(cameraFeed,delayText,Point(0,50),2,1,Scalar(0,255,0),2);
+					putText(cameraFeed, delayText, Point(0, 50), 2, 1, Scalar(0, 255, 0), 2);
 					//draw object location on screen
-					drawObject(x,y,cameraFeed);}
+					drawObject(x, y, cameraFeed);
+				}
 
-			}else putText(cameraFeed,"TOO MUCH NOISE! ADJUST FILTER",Point(0,50),1,2,Scalar(0,0,255),2);
+			}
+			else putText(cameraFeed, "TOO MUCH NOISE! ADJUST FILTER", Point(0, 50), 1, 2, Scalar(0, 0, 255), 2);
 		}
 	}
 	catch (const std::exception&)
 	{
 		//handles the exception of video play end
 	}
-	
+
 }
 
 double * threeDCalculation(int cam1_x, int cam2_x, int cam1_y, int cam2_y, double d, double f) {
@@ -218,14 +225,9 @@ double * threeDCalculation(int cam1_x, int cam2_x, int cam1_y, int cam2_y, doubl
 
 //MultiThread part
 
-struct thread_data {
-	int m_id;
-	//thread_data(int id) : m_id(id) {}
-};
-DWORD WINAPI imageProc(LPVOID lpParameter) {
-	thread_data *td = (thread_data*)lpParameter;
+
+void imageProc(int id) {
 	using namespace std;
-	int id = td->m_id;
 	//x and y values for the location of the object
 	int index = id - 1;//translate index
 	x[index] = 0, y[index] = 0;
@@ -253,7 +255,6 @@ DWORD WINAPI imageProc(LPVOID lpParameter) {
 		if (!captureCam[index].isOpened()) {
 			printf("ERROR ACQUIRING VIDEO FEED\n");
 			getchar();
-			return -1;
 		}
 		while (captureCam[index].get(CV_CAP_PROP_POS_FRAMES) < captureCam[index].get(CV_CAP_PROP_FRAME_COUNT) - 1) {
 			//set height and width of capture frame
@@ -270,7 +271,10 @@ DWORD WINAPI imageProc(LPVOID lpParameter) {
 				inRange(HSVCam[index], Scalar(67, 0, 86), Scalar(95, 256, 256), threshold);
 				//Start timestamp
 				t1[index] = getTickCount();
-				morphOps(threshold);
+				std::thread erodeThread(morphErode, threshold);
+				std::thread dilateThread(morphDilate, threshold);
+				erodeThread.join();
+				dilateThread.join();
 				//pass in thresholded frame to our object tracking function
 				//this function will return the x and y coordinates of the
 				//filtered object
@@ -281,7 +285,7 @@ DWORD WINAPI imageProc(LPVOID lpParameter) {
 				delayBuf[capture_iteration[index]] = tdiff[index];
 				//printf("3D coordinate x: %f y: %f z: %f delay: %dms\n", threeD[0], threeD[1], threeD[2], tdiff);
 				printf("Camera: %d  delay: %dms\n", id, tdiff[index]);
-				string logstring = "Iteratioin: " + to_string(capture_iteration[index]) + " Delay: " + to_string(tdiff[index]);
+				string logstring = "Iteration: " + to_string(capture_iteration[index]) + " Delay: " + to_string(tdiff[index]);
 				//show frames 
 				switch (id)
 				{
@@ -312,13 +316,11 @@ DWORD WINAPI imageProc(LPVOID lpParameter) {
 	{
 		//Handles video play end exception
 	}
-	
+
 }
 
 //MuliTread API for Windows
-DWORD WINAPI stereoPostion(LPVOID lpParameter) {
-	thread_data *td = (thread_data*)lpParameter;
-	int id = td->m_id;
+void stereoPostion() {
 	while (stereoCounter < 10000) {
 		if (stereoCounter <= capture_iteration[0] && stereoCounter <= capture_iteration[1])
 		{
@@ -330,7 +332,6 @@ DWORD WINAPI stereoPostion(LPVOID lpParameter) {
 			waitKey(1);//IF corresponding iteration of web cam feed is not ready wait for 1ms 
 		}
 	}
-	return 0;
 }
 
 bool fexists(const std::string& filename) {
@@ -347,39 +348,12 @@ int main(int argc, char* argv[])
 	}
 
 	//MultiTread part
-	HANDLE hThread_1;
-	HANDLE hThread_2;
-	HANDLE hThread_main;
-	DWORD threadID_1;
-	DWORD threadID_2;
-	DWORD threadID_main;
-
-
-	hThread_1 = CreateThread(NULL, // security attributes ( default if NULL )
-		0, // stack SIZE default if 0
-		imageProc, // Start Address
-		new thread_data{ 1 }, // input data
-		0, // creational flag ( start if  0 )
-		&threadID_1); // thread ID
-	hThread_2 = CreateThread(NULL, // security attributes ( default if NULL )
-		0, // stack SIZE default if 0
-		imageProc, // Start Address
-		new thread_data{ 2 }, // input data
-		0, // creational flag ( start if  0 )
-		&threadID_2); // thread ID
-	hThread_main = CreateThread(NULL, // security attributes ( default if NULL )
-		0, // stack SIZE default if 0
-		stereoPostion, // Start Address
-		new thread_data{ 3 }, // input data
-		0, // creational flag ( start if  0 )
-		&threadID_main); // thread ID
+	std::thread cam1Thread(imageProc,1);
+	std::thread cam2Thread(imageProc, 2);
+	std::thread calThread(stereoPostion);
+	cam1Thread.join();
+	cam2Thread.join();
+	calThread.join();
 	
-	while(hThread_1&&hThread_2&&hThread_main) {
-		//keep running the treads before end
-	}
-	CloseHandle(hThread_1);
-	CloseHandle(hThread_2);
-	CloseHandle(hThread_main);
-     
 	return 0;
 }
